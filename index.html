@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Resumen de Viajes</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --bg:#eef0f3; --card:#fff; --text:#3f4348; --muted:#7a8088; --line:#e3e6ea;
+    --lime:#cde01f; --lime-d:#a9bb12; --gray:#4e5258; --gray-d:#3a3e43;
+    --cedis:#4e5258; --cargando:#6f86e6; --calle:#cde01f;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Roboto Condensed","Roboto","Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text)}
+  body.dragging::after{content:"Suelta el archivo para cargarlo";position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;
+    background:rgba(78,82,88,.82);color:var(--lime);font-size:28px;font-weight:600;letter-spacing:.06em;border:6px dashed var(--lime)}
+
+  /* Header */
+  .topbar{background:var(--gray);color:#fff;padding:12px 28px;font-size:12px;font-weight:600;letter-spacing:.08em;display:flex;align-items:center;gap:10px}
+  .topbar i{display:inline-block;width:13px;height:13px;border:2px solid var(--lime);border-radius:50%}
+  .brand{background:var(--lime);padding:18px 28px;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  .brand h1{margin:0;font-size:28px;letter-spacing:.4em;color:var(--gray);font-weight:500;line-height:1}
+  .brand small{display:block;font-size:10px;letter-spacing:.3em;color:var(--gray);margin-top:6px}
+  .upload{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .btn{display:inline-flex;align-items:center;gap:9px;background:var(--gray);color:#fff;border:0;border-radius:8px;padding:11px 20px;
+    font:inherit;font-size:14px;font-weight:600;letter-spacing:.04em;cursor:pointer;transition:.15s;box-shadow:0 2px 0 rgba(0,0,0,.18)}
+  .btn:hover{background:var(--gray-d);transform:translateY(-1px)}
+  .btn svg{width:17px;height:17px;stroke:var(--lime);fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+  #fname{font-size:13px;color:var(--gray);font-weight:600}
+  .hint{font-size:11px;color:var(--gray);opacity:.75}
+
+  /* Contenido */
+  .wrap{max-width:1240px;margin:0 auto;padding:22px 28px 40px}
+  .err{color:#b3202a;font-size:13px;margin-bottom:12px;font-weight:600}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 1px 3px rgba(20,25,35,.05)}
+  .card h2{margin:0;padding:12px 16px;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--gray);
+    border-bottom:1px solid var(--line);border-left:4px solid var(--lime);border-radius:12px 12px 0 0}
+  .empty{padding:56px 20px;text-align:center;color:var(--muted);border:2px dashed #cfd3d9;background:transparent;box-shadow:none}
+  .empty b{display:block;color:var(--gray);font-size:18px;margin-bottom:6px}
+  #app{display:none}
+  .top{display:grid;grid-template-columns:minmax(320px,1.2fr) minmax(300px,1fr);gap:18px;margin-bottom:18px}
+  @media (max-width:760px){.top{grid-template-columns:1fr}}
+
+  /* Minitabla */
+  .mini{width:100%;border-collapse:collapse}
+  .mini th,.mini td{padding:9px 16px;font-size:13px;border-bottom:1px solid var(--line)}
+  .mini th{color:var(--muted);font-weight:600;text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;background:#fafbfc}
+  .mini td.n{text-align:right;font-variant-numeric:tabular-nums;font-weight:700;font-size:15px;width:90px;color:var(--gray)}
+  .mini td.v{text-align:right;color:var(--muted);width:70px;font-variant-numeric:tabular-nums}
+  .mini tr.total td{border-bottom:0;font-weight:700;background:#fafbfc}
+  .dot{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:9px;vertical-align:-1px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.18)}
+
+  /* Dona */
+  .donutbody{display:flex;align-items:center;justify-content:center;gap:26px;padding:16px;flex-wrap:wrap;min-height:210px}
+  #donut{width:170px;height:170px}
+  .legend{font-size:14px;min-width:140px}
+  .legend .row{display:flex;align-items:center;margin:8px 0}
+  .legend b{margin-left:auto;padding-left:18px;font-variant-numeric:tabular-nums;font-size:16px;color:var(--gray)}
+  .legend .m{color:var(--muted);margin-left:8px;font-size:12px;min-width:44px;text-align:right}
+  .legend .note{color:var(--muted);font-size:11px;margin-top:10px}
+  .center-l{font-size:7.5px;fill:var(--muted);font-weight:700;letter-spacing:.06em}
+  .center-v{font-size:19px;fill:var(--gray);font-weight:800}
+
+  .clock{border-top:1px solid var(--line);background:#fafbfc;border-radius:0 0 12px 12px;padding:12px 16px;text-align:center}
+  .clock .t{font-size:30px;font-weight:700;letter-spacing:.06em;color:var(--gray);font-variant-numeric:tabular-nums;line-height:1.1}
+  .clock .t span{font-size:13px;font-weight:700;margin-left:6px;color:var(--lime-d);letter-spacing:.08em}
+  .clock .d{font-size:12px;color:var(--muted);margin-top:4px;text-transform:capitalize}
+  .clock .z{font-size:10px;color:var(--muted);letter-spacing:.12em;text-transform:uppercase;margin-top:2px}
+
+  /* Tabla principal */
+  .scroll{overflow:auto;max-height:68vh}
+  .data{width:100%;border-collapse:collapse}
+  .data th{position:sticky;top:0;z-index:2;background:var(--gray);color:#fff;font-size:11.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+    text-align:left;padding:12px 14px;cursor:pointer;white-space:nowrap;user-select:none}
+  .data th:hover{background:var(--gray-d)}
+  .data th .ar{opacity:.45;margin-left:6px;font-size:10px}
+  .data th.sorted{box-shadow:inset 0 -3px 0 var(--lime)}
+  .data th.sorted .ar{opacity:1;color:var(--lime)}
+  .data th.num,.data td.num{text-align:right}
+  .data td{padding:9px 14px;font-size:13px;border-bottom:1px solid var(--line);white-space:nowrap}
+  .data tbody tr:nth-child(even) td{background:#fafbfc}
+  .data tbody tr:hover td{background:#f3f7d6}
+  .data td.num{font-variant-numeric:tabular-nums;font-weight:600}
+  .data td.id{font-weight:700;color:var(--gray);font-variant-numeric:tabular-nums}
+  .data td.mu{font-weight:700}
+  .pill{display:inline-block;padding:3px 11px;border-radius:99px;font-size:10.5px;font-weight:700;letter-spacing:.04em}
+  .count{padding:11px 16px;color:var(--muted);font-size:12px;border-top:1px solid var(--line);background:#fafbfc;border-radius:0 0 12px 12px}
+</style>
+</head>
+<body>
+<div class="topbar"><i></i>INFORME DE VIAJES</div>
+<div class="brand">
+  <div>
+    <h1>VIAJES</h1>
+    <small>RESUMEN DE RUTAS Y ESTADOS</small>
+  </div>
+  <div class="upload">
+    <span id="fname"></span>
+    <label class="btn" for="file">
+      <svg viewBox="0 0 24 24"><path d="M12 16V4"/><path d="M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+      Sube o arrastra tu archivo
+    </label>
+    <input type="file" id="file" accept=".xlsx,.xls,.csv" hidden>
+  </div>
+</div>
+
+<div class="wrap">
+  <div class="err" id="err"></div>
+
+  <div class="card empty" id="empty">
+    <b>Aún no hay datos</b>
+    Usa el botón del encabezado o arrastra el Excel de Viajes a cualquier parte de la página.
+  </div>
+
+  <div id="app">
+    <div class="top">
+      <div class="card">
+        <h2>Estados</h2>
+        <table class="mini" id="mini"></table>
+      </div>
+      <div class="card">
+        <h2>En Calle · Cargando · En Cedis</h2>
+        <div class="donutbody">
+          <svg id="donut" viewBox="0 0 100 100"></svg>
+          <div class="legend" id="legend"></div>
+        </div>
+        <div class="clock">
+          <div class="t" id="clockT">--:--:--</div>
+          <div class="d" id="clockD"></div>
+          <div class="z">Hora de Monterrey, N.L., México</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Detalle de viajes</h2>
+      <div class="scroll"><table class="data" id="data"></table></div>
+      <div class="count" id="count"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const ORDEN = ["INICIAL","INICIO DE CARGA","FIN DE CARGA","EN RUTA DE ENTREGA","FINALIZADO"];
+const COLORES = {
+  "INICIAL":"#fff3a3",            // amarillo claro
+  "INICIO DE CARGA":"#7cc8f2",    // azul claro
+  "FIN DE CARGA":"#5b5fd6",       // azul morado
+  "EN RUTA DE ENTREGA":"#e0a800", // amarillo mostaza
+  "FINALIZADO":"#9bd41f"          // verde limón
+};
+const TEXTO = {
+  "INICIAL":"#5c5320","INICIO DE CARGA":"#0f3a55","FIN DE CARGA":"#fff",
+  "EN RUTA DE ENTREGA":"#3b2c00","FINALIZADO":"#2b3d00"
+};
+const EN_CEDIS = ["INICIAL"];
+const CARGANDO = ["INICIO DE CARGA","FIN DE CARGA"];
+const EN_CALLE = ["EN RUTA DE ENTREGA","FINALIZADO"];
+
+const COLS = [
+  {k:"id",       t:"ID",               type:"num"},
+  {k:"estado",   t:"Estado",           type:"str"},
+  {k:"jornada",  t:"Jornada",          type:"str"},
+  {k:"categoria",t:"Categoría",        type:"str"},
+  {k:"conductor",t:"Conductor",        type:"str"},
+  {k:"vehiculo", t:"Vehículo",         type:"str"},
+  {k:"paradas",  t:"Paradas",          type:"num", cls:"num"},
+  {k:"muelle",   t:"Muelle de Salida", type:"muelle"}
+];
+
+let rows = [], sortKey = null, sortDir = 1;
+
+const norm = s => String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toUpperCase();
+const esc  = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function findCol(headers, names){
+  const h = headers.map(norm);
+  for (const n of names){ const i = h.indexOf(norm(n)); if (i>=0) return headers[i]; }
+  return null;
+}
+
+function parse(json){
+  if (!json.length) throw new Error("El archivo no tiene filas.");
+  const headers = Object.keys(json[0]);
+  const c = {
+    id: findCol(headers,["ID"]),
+    estado: findCol(headers,["Estado"]),
+    categoria: findCol(headers,["Categoría","Categoria"]),
+    jornada: findCol(headers,["Jornada"]),
+    vehiculo: findCol(headers,["Vehículo","Vehiculo"]),
+    paradas: findCol(headers,["Paradas","# Paradas"]),
+    muelle: findCol(headers,["Muelle de salida","Muelle de Salida"]),
+    conductor: findCol(headers,["Conductor"])
+  };
+  const falta = ["id","estado","paradas","muelle"].filter(k=>!c[k]);
+  if (falta.length) throw new Error("No encontré las columnas: " + falta.join(", ") + ". ¿Es el archivo de Viajes?");
+
+  return json.filter(r => String(r[c.id] ?? "").trim() !== "").map(r => {
+    const rawId = String(r[c.id]).trim();
+    const m = rawId.match(/^(.*?)\s*-\s*(\d+)\s*$/);
+    const id = m ? m[1].trim() : rawId;
+    const ruta = m ? m[2] : "";
+    const muelleBase = String(r[c.muelle] ?? "").trim();
+    let veh = String(r[c.vehiculo] ?? "").trim();
+    const parts = veh.split(/\s+-\s+/);
+    if (parts.length === 2 && parts[0] === parts[1]) veh = parts[0];   // "ABC123 - ABC123" -> "ABC123"
+    return {
+      id,
+      estado: norm(r[c.estado]),
+      jornada: String(r[c.jornada] ?? "").trim(),
+      categoria: String(r[c.categoria] ?? "").trim(),
+      conductor: String(r[c.conductor] ?? "").trim(),
+      vehiculo: veh,
+      paradas: Number(r[c.paradas]) || 0,
+      muelle: ruta ? `${muelleBase} - ${ruta}` : muelleBase,
+      _mBase: muelleBase, _ruta: Number(ruta) || 0
+    };
+  });
+}
+
+/* ---------- Mini tabla + dona ---------- */
+function renderResumen(){
+  const acc = {};
+  rows.forEach(r => {
+    const a = acc[r.estado] ??= {p:0,v:0};
+    a.p += r.paradas; a.v += 1;
+  });
+  const extras = Object.keys(acc).filter(e => !ORDEN.includes(e));
+  const lista = [...ORDEN, ...extras];
+  const totP = rows.reduce((s,r)=>s+r.paradas,0);
+
+  let h = `<tr><th style="text-align:right">Paradas</th><th>Estado</th><th style="text-align:right">Viajes</th></tr>`;
+  lista.forEach(e => {
+    const a = acc[e] || {p:0,v:0};
+    h += `<tr><td class="n">${a.p}</td><td><span class="dot" style="background:${COLORES[e]||'#aaa'}"></span>${esc(e)}</td><td class="v">${a.v}</td></tr>`;
+  });
+  h += `<tr class="total"><td class="n">${totP}</td><td>TOTAL</td><td class="v">${rows.length}</td></tr>`;
+  document.getElementById("mini").innerHTML = h;
+
+  const sum = arr => arr.reduce((s,e)=>s+(acc[e]?.p||0),0);
+  const cedis = sum(EN_CEDIS), carg = sum(CARGANDO), calle = sum(EN_CALLE);
+  const base = cedis + carg + calle || 1;
+  const pCalle = calle/base*100, pCarg = carg/base*100, pCedis = cedis/base*100;
+
+  const R = 38, C = 2*Math.PI*R, sw = 13;
+  const dCalle = C*calle/base, dCarg = C*carg/base, dCedis = C*cedis/base;
+  document.getElementById("donut").innerHTML = `
+    <circle cx="50" cy="50" r="${R}" fill="none" stroke="#eceef1" stroke-width="${sw}"/>
+    <g transform="rotate(-90 50 50)" fill="none" stroke-width="${sw}">
+      <circle cx="50" cy="50" r="${R}" stroke="var(--calle)" stroke-dasharray="${dCalle} ${C}" stroke-dashoffset="0"/>
+      <circle cx="50" cy="50" r="${R}" stroke="var(--cargando)" stroke-dasharray="${dCarg} ${C}" stroke-dashoffset="${-dCalle}"/>
+      <circle cx="50" cy="50" r="${R}" stroke="var(--cedis)" stroke-dasharray="${dCedis} ${C}" stroke-dashoffset="${-(dCalle+dCarg)}"/>
+    </g>
+    <text x="50" y="44" text-anchor="middle" class="center-l">% EN CALLE</text>
+    <text x="50" y="62" text-anchor="middle" class="center-v">${pCalle.toFixed(1)}%</text>`;
+
+  document.getElementById("legend").innerHTML = `
+    <div class="row"><span class="dot" style="background:var(--calle)"></span>EN CALLE <b>${calle}</b><span class="m">${pCalle.toFixed(1)}%</span></div>
+    <div class="row"><span class="dot" style="background:var(--cargando)"></span>CARGANDO <b>${carg}</b><span class="m">${pCarg.toFixed(1)}%</span></div>
+    <div class="row"><span class="dot" style="background:var(--cedis)"></span>EN CEDIS <b>${cedis}</b><span class="m">${pCedis.toFixed(1)}%</span></div>
+    <div class="note">Calculado con paradas</div>`;
+}
+
+/* ---------- Tabla ordenable ---------- */
+function muelleCmp(a,b){
+  if (a._mBase.length !== b._mBase.length) return a._mBase.length - b._mBase.length;
+  if (a._mBase !== b._mBase) return a._mBase < b._mBase ? -1 : 1;
+  return a._ruta - b._ruta;
+}
+function sorted(){
+  if (!sortKey) return rows;
+  const col = COLS.find(c=>c.k===sortKey);
+  const arr = [...rows];
+  arr.sort((a,b)=>{
+    let r;
+    if (col.type==="muelle") r = muelleCmp(a,b);
+    else if (col.type==="num") r = (parseFloat(a[sortKey])||0) - (parseFloat(b[sortKey])||0);
+    else r = String(a[sortKey]).localeCompare(String(b[sortKey]),"es",{numeric:true});
+    return r*sortDir;
+  });
+  return arr;
+}
+function renderTabla(){
+  const head = COLS.map(c=>{
+    const on = sortKey===c.k;
+    return `<th data-k="${c.k}" class="${(on?'sorted ':'')+(c.cls||'')}">${c.t}<span class="ar">${on?(sortDir>0?'▲':'▼'):'↕'}</span></th>`;
+  }).join("");
+  const body = sorted().map(r=>`<tr>${COLS.map(c=>{
+    let v = r[c.k];
+    if (c.k==="estado") v = `<span class="pill" style="background:${COLORES[r.estado]||'#888'};color:${TEXTO[r.estado]||'#fff'}">${esc(v)}</span>`;
+    else v = esc(v);
+    const extra = c.k==="id" ? "id" : c.k==="muelle" ? "mu" : "";
+    return `<td class="${(c.cls||'')+' '+extra}">${v}</td>`;
+  }).join("")}</tr>`).join("");
+  const t = document.getElementById("data");
+  t.innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}</tbody>`;
+  t.querySelectorAll("th").forEach(th=>th.onclick=()=>{
+    const k = th.dataset.k;
+    if (sortKey===k) sortDir*=-1; else {sortKey=k; sortDir=1;}
+    renderTabla();
+  });
+  document.getElementById("count").textContent = `${rows.length} viajes · ${rows.reduce((s,r)=>s+r.paradas,0)} paradas`;
+}
+
+/* ---------- Carga de archivo ---------- */
+async function cargar(file){
+  const err = document.getElementById("err"); err.textContent = "";
+  try{
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf,{type:"array"});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const json = XLSX.utils.sheet_to_json(ws,{defval:"",raw:false});
+    rows = parse(json);
+    sortKey = null; sortDir = 1;
+    document.getElementById("fname").textContent = file.name;
+    document.getElementById("app").style.display = "block";
+    document.getElementById("empty").style.display = "none";
+    renderResumen(); renderTabla();
+  }catch(e){
+    err.textContent = "No se pudo procesar el archivo: " + e.message;
+  }
+}
+/* ---------- Reloj (Monterrey, N.L.) ---------- */
+const TZ = "America/Monterrey";
+const fmtHora  = new Intl.DateTimeFormat("es-MX",{timeZone:TZ,hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:true});
+const fmtFecha = new Intl.DateTimeFormat("es-MX",{timeZone:TZ,weekday:"long",day:"numeric",month:"long",year:"numeric"});
+function tick(){
+  const now = new Date();
+  const partes = fmtHora.formatToParts(now);
+  const g = t => partes.find(p=>p.type===t)?.value || "";
+  const ampm = g("dayPeriod").replace(/\./g,"").replace(/\s/g,"").toUpperCase();
+  document.getElementById("clockT").innerHTML = `${g("hour")}:${g("minute")}:${g("second")}<span>${ampm}</span>`;
+  document.getElementById("clockD").textContent = fmtFecha.format(now);
+  setTimeout(tick, 1000 - (now.getMilliseconds()));   // sincroniza con el cambio de segundo
+}
+tick();
+
+const fileInput = document.getElementById("file");
+fileInput.onchange = e => { if (e.target.files[0]) cargar(e.target.files[0]); e.target.value = ""; };
+let depth = 0;
+window.addEventListener("dragenter",e=>{e.preventDefault();depth++;document.body.classList.add("dragging")});
+window.addEventListener("dragover",e=>e.preventDefault());
+window.addEventListener("dragleave",e=>{e.preventDefault();if(--depth<=0){depth=0;document.body.classList.remove("dragging")}});
+window.addEventListener("drop",e=>{
+  e.preventDefault();depth=0;document.body.classList.remove("dragging");
+  const f=e.dataTransfer.files[0]; if(f) cargar(f);
+});
+</script>
+</body>
+</html>
