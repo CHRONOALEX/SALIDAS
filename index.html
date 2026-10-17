@@ -72,9 +72,11 @@
   .sched label{display:block;font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:5px;text-align:center}
   .sched input{width:100%;font:inherit;font-size:18px;font-weight:700;text-align:center;color:var(--gray);padding:8px 6px;border:1.5px solid #cfd3d9;border-radius:8px;background:#fff;outline:none;font-variant-numeric:tabular-nums}
   .sched input:focus{border-color:var(--lime-d);box-shadow:0 0 0 3px rgba(205,224,31,.35)}
-  .toolbar{display:flex;justify-content:flex-end;margin-bottom:12px}
+  .toolbar{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;margin-bottom:12px}
   .btn.copy{background:var(--gray);padding:9px 16px;font-size:13px}
-  .btn.copy.ok{background:#5d8a00}
+  .btn.copy.alt{background:#fff;color:var(--gray);box-shadow:inset 0 0 0 1.5px var(--gray)}
+  .btn.copy.alt:hover{background:#f1f2f4}
+  .btn.copy.ok{background:#5d8a00;color:#fff;box-shadow:none}
 
   /* Tabla principal */
   .scroll{overflow:auto;max-height:68vh}
@@ -123,9 +125,12 @@
 
   <div id="app">
     <div class="toolbar">
-      <button class="btn copy" id="btnCopy" type="button">
+      <button class="btn copy alt" id="btnCopyH" type="button" title="Copia la fila de títulos + la fila de hoy (úsalo la primera vez)">
+        <span>Copiar con encabezados</span>
+      </button>
+      <button class="btn copy" id="btnCopy" type="button" title="Copia solo la fila de hoy, lista para pegar al final de tu hoja">
         <svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>
-        <span id="btnCopyT">Copiar para Sheets</span>
+        <span>Copiar fila para Sheets</span>
       </button>
     </div>
     <div class="top">
@@ -396,51 +401,36 @@ function hora12(v){            // "14:05" -> "2:05 PM"
   h = h%12 || 12;
   return `${h}:${String(m).padStart(2,"0")} ${ap}`;
 }
-function construirCopia(){
+function encabezados(){
+  return ["Fecha", ...ORDEN, "Total Paradas", "Total Viajes",
+          "EN CALLE", "CARGANDO", "EN CEDIS", "% EN CALLE", "% CARGANDO", "% EN CEDIS",
+          "Inicio de Carga", "Fin de Carga"];
+}
+function fila(){
   const r = lastResumen; if(!r) return null;
+  const g = Object.fromEntries(r.grupos.map(([n,p,pc])=>[n,[p,pc]]));
+  const pc = n => g[n][1].toFixed(1)+"%";
+  return [hoyMty(), ...ORDEN.map(e=>r.acc[e]?.p || 0), r.totP, r.nViajes,
+          g["EN CALLE"][0], g["CARGANDO"][0], g["EN CEDIS"][0], pc("EN CALLE"), pc("CARGANDO"), pc("EN CEDIS"),
+          hora12(inIni.value), hora12(inFin.value)];
+}
+function construirCopia(conEncabezados){
+  const datos = fila(); if(!datos) return null;
   const F = "font-family:Lexend,Arial,sans-serif;text-align:center;vertical-align:middle;";
   const B = "border:1px solid #9aa0a6;padding:6px 10px;";
-  const td = (t,extra="")=>`<td style="${F}${B}${extra}">${esc(t)}</td>`;
-  const th = (t,extra="")=>td(t,"font-weight:bold;background:#4e5258;color:#ffffff;"+extra);
-  const sec = (t)=>`<tr><td colspan="3" style="${F}${B}font-weight:bold;background:#cde01f;color:#3f4348;">${esc(t)}</td></tr>`;
-  const vacio = `<tr><td colspan="3" style="${F}"> </td></tr>`;
-  let h = `<table style="border-collapse:collapse;${F}">`;
-  let t = [];
-
-  h += sec("ESTADOS") + `<tr>${th("Paradas")}${th("Estado")}${th("Viajes")}</tr>`;
-  t.push("ESTADOS","Paradas\tEstado\tViajes");
-  r.lista.forEach(e=>{
-    const a = r.acc[e] || {p:0,v:0};
-    const st = `background:${COLORES[e]||"#ffffff"};color:${TEXTO[e]||"#000000"};font-weight:bold;`;
-    h += `<tr>${td(a.p,"font-weight:bold;")}${td(e,st)}${td(a.v)}</tr>`;
-    t.push(`${a.p}\t${e}\t${a.v}`);
-  });
-  h += `<tr>${td(r.totP,"font-weight:bold;background:#eceef1;")}${td("TOTAL","font-weight:bold;background:#eceef1;")}${td(r.nViajes,"font-weight:bold;background:#eceef1;")}</tr>`;
-  t.push(`${r.totP}\tTOTAL\t${r.nViajes}`);
-
-  h += vacio; t.push("");
-  h += sec("EN CALLE · CARGANDO · EN CEDIS") + `<tr>${th("Grupo")}${th("Paradas")}${th("%")}</tr>`;
-  t.push("EN CALLE · CARGANDO · EN CEDIS","Grupo\tParadas\t%");
-  const colG = {"EN CALLE":"#cde01f","CARGANDO":"#6f86e6","EN CEDIS":"#4e5258"};
-  const txtG = {"EN CALLE":"#3f4348","CARGANDO":"#ffffff","EN CEDIS":"#ffffff"};
-  r.grupos.forEach(([n,p,pc])=>{
-    const pct = pc.toFixed(1)+"%";
-    h += `<tr>${td(n,`background:${colG[n]};color:${txtG[n]};font-weight:bold;`)}${td(p,"font-weight:bold;")}${td(pct)}</tr>`;
-    t.push(`${n}\t${p}\t${pct}`);
-  });
-
-  const ini = hora12(document.getElementById("hIni").value);
-  const fin = hora12(document.getElementById("hFin").value);
-  h += vacio; t.push("");
-  h += sec("HORARIO") + `<tr>${th("Inicio de Carga")}${th("Fin de Carga")}${th("")}</tr>` + `<tr>${td(ini,"font-weight:bold;")}${td(fin,"font-weight:bold;")}${td("")}</tr>`;
-  t.push("HORARIO","Inicio de Carga\tFin de Carga",`${ini}\t${fin}`);
-
-  h += "</table>";
+  let h = `<table style="border-collapse:collapse;${F}">`, t = [];
+  if (conEncabezados){
+    const enc = encabezados();
+    h += "<tr>" + enc.map(x=>`<td style="${F}${B}font-weight:bold;background:#4e5258;color:#ffffff;">${esc(x)}</td>`).join("") + "</tr>";
+    t.push(enc.join("\t"));
+  }
+  h += "<tr>" + datos.map(x=>`<td style="${F}${B}">${esc(x)}</td>`).join("") + "</tr></table>";
+  t.push(datos.join("\t"));
   return {html:h, text:t.join("\n")};
 }
-async function copiarSheets(){
-  const c = construirCopia(); if(!c) return;
-  const btn = document.getElementById("btnCopy"), lbl = document.getElementById("btnCopyT");
+async function copiarSheets(conEncabezados, btn){
+  const c = construirCopia(conEncabezados); if(!c) return;
+  const lbl = btn.querySelector("span"), orig = lbl.textContent;
   let ok = false;
   try{
     if(navigator.clipboard && window.ClipboardItem){
@@ -463,9 +453,10 @@ async function copiarSheets(){
   }
   lbl.textContent = ok ? "¡Copiado! Pega en Sheets" : "No se pudo copiar";
   btn.classList.toggle("ok", ok);
-  setTimeout(()=>{ lbl.textContent="Copiar para Sheets"; btn.classList.remove("ok"); }, 2200);
+  setTimeout(()=>{ lbl.textContent = orig; btn.classList.remove("ok"); }, 2200);
 }
-document.getElementById("btnCopy").onclick = copiarSheets;
+document.getElementById("btnCopy").onclick = e => copiarSheets(false, e.currentTarget);
+document.getElementById("btnCopyH").onclick = e => copiarSheets(true, e.currentTarget);
 
 const fileInput = document.getElementById("file");
 fileInput.onchange = e => { if (e.target.files[0]) cargar(e.target.files[0]); e.target.value = ""; };
