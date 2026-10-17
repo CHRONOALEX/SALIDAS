@@ -68,6 +68,14 @@
   .clock .d{font-size:12px;color:var(--muted);margin-top:4px;text-transform:capitalize}
   .clock .z{font-size:10px;color:var(--muted);letter-spacing:.12em;text-transform:uppercase;margin-top:2px}
 
+  .sched{border-top:1px solid var(--line);padding:12px 16px 16px;display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .sched label{display:block;font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:5px;text-align:center}
+  .sched input{width:100%;font:inherit;font-size:18px;font-weight:700;text-align:center;color:var(--gray);padding:8px 6px;border:1.5px solid #cfd3d9;border-radius:8px;background:#fff;outline:none;font-variant-numeric:tabular-nums}
+  .sched input:focus{border-color:var(--lime-d);box-shadow:0 0 0 3px rgba(205,224,31,.35)}
+  .toolbar{display:flex;justify-content:flex-end;margin-bottom:12px}
+  .btn.copy{background:var(--gray);padding:9px 16px;font-size:13px}
+  .btn.copy.ok{background:#5d8a00}
+
   /* Tabla principal */
   .scroll{overflow:auto;max-height:68vh}
   .data{width:100%;border-collapse:collapse}
@@ -114,6 +122,12 @@
   </div>
 
   <div id="app">
+    <div class="toolbar">
+      <button class="btn copy" id="btnCopy" type="button">
+        <svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>
+        <span id="btnCopyT">Copiar para Sheets</span>
+      </button>
+    </div>
     <div class="top">
       <div class="card">
         <h2>Estados</h2>
@@ -129,6 +143,10 @@
           <div class="t" id="clockT">--:--:--</div>
           <div class="d" id="clockD"></div>
           <div class="z">Hora de Monterrey, N.L., México</div>
+        </div>
+        <div class="sched">
+          <div><label for="hIni">Inicio de Carga</label><input type="time" id="hIni" step="60"></div>
+          <div><label for="hFin">Fin de Carga</label><input type="time" id="hFin" step="60"></div>
         </div>
       </div>
     </div>
@@ -169,7 +187,7 @@ const COLS = [
   {k:"muelle",   t:"Muelle de Salida", type:"muelle"}
 ];
 
-let rows = [], sortKey = null, sortDir = 1;
+let rows = [], sortKey = null, sortDir = 1, lastResumen = null;
 
 const norm = s => String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toUpperCase();
 const esc  = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -255,6 +273,9 @@ function renderResumen(){
     <text x="50" y="44" text-anchor="middle" class="center-l">% EN CALLE</text>
     <text x="50" y="62" text-anchor="middle" class="center-v">${pCalle.toFixed(1)}%</text>`;
 
+  lastResumen = {lista, acc, totP, nViajes: rows.length,
+    grupos:[["EN CALLE",calle,pCalle],["CARGANDO",carg,pCarg],["EN CEDIS",cedis,pCedis]]};
+
   document.getElementById("legend").innerHTML = `
     <div class="row"><span class="dot" style="background:var(--calle)"></span>EN CALLE <b>${calle}</b><span class="m">${pCalle.toFixed(1)}%</span></div>
     <div class="row"><span class="dot" style="background:var(--cargando)"></span>CARGANDO <b>${carg}</b><span class="m">${pCarg.toFixed(1)}%</span></div>
@@ -332,9 +353,119 @@ function tick(){
   const ampm = g("dayPeriod").replace(/\./g,"").replace(/\s/g,"").toUpperCase();
   document.getElementById("clockT").innerHTML = `${g("hour")}:${g("minute")}:${g("second")}<span>${ampm}</span>`;
   document.getElementById("clockD").textContent = fmtFecha.format(now);
+  revisarDia();                                        // borra los horarios al cambiar de día
   setTimeout(tick, 1000 - (now.getMilliseconds()));   // sincroniza con el cambio de segundo
 }
+
+/* ---------- Horarios manuales: se guardan en el navegador y se borran al cambiar de día ---------- */
+const KEY = "viajes_horarios_carga";
+const fmtDia = new Intl.DateTimeFormat("en-CA",{timeZone:TZ,year:"numeric",month:"2-digit",day:"2-digit"});
+const hoyMty = () => fmtDia.format(new Date());          // "2026-10-17" (día en Monterrey)
+const inIni = document.getElementById("hIni"), inFin = document.getElementById("hFin");
+let diaActual = hoyMty();
+
+function guardarHorarios(){
+  try{
+    localStorage.setItem(KEY, JSON.stringify({dia:diaActual, ini:inIni.value, fin:inFin.value}));
+  }catch(e){}
+}
+function borrarHorarios(){
+  inIni.value = ""; inFin.value = "";
+  try{ localStorage.removeItem(KEY); }catch(e){}
+}
+function cargarHorarios(){
+  try{
+    const g = JSON.parse(localStorage.getItem(KEY) || "null");
+    if (g && g.dia === hoyMty()){ inIni.value = g.ini || ""; inFin.value = g.fin || ""; }
+    else if (g){ localStorage.removeItem(KEY); }          // guardado de otro día
+  }catch(e){}
+}
+function revisarDia(){
+  const hoy = hoyMty();
+  if (hoy !== diaActual){ diaActual = hoy; borrarHorarios(); }   // pasó la medianoche con la página abierta
+}
+["input","change"].forEach(ev=>{ inIni.addEventListener(ev,guardarHorarios); inFin.addEventListener(ev,guardarHorarios); });
+cargarHorarios();
 tick();
+
+/* ---------- Copiar para Sheets ---------- */
+function hora12(v){            // "14:05" -> "2:05 PM"
+  if(!v) return "";
+  let [h,m] = v.split(":").map(Number);
+  const ap = h>=12 ? "PM" : "AM";
+  h = h%12 || 12;
+  return `${h}:${String(m).padStart(2,"0")} ${ap}`;
+}
+function construirCopia(){
+  const r = lastResumen; if(!r) return null;
+  const F = "font-family:Lexend,Arial,sans-serif;text-align:center;vertical-align:middle;";
+  const B = "border:1px solid #9aa0a6;padding:6px 10px;";
+  const td = (t,extra="")=>`<td style="${F}${B}${extra}">${esc(t)}</td>`;
+  const th = (t,extra="")=>td(t,"font-weight:bold;background:#4e5258;color:#ffffff;"+extra);
+  const sec = (t)=>`<tr><td colspan="3" style="${F}${B}font-weight:bold;background:#cde01f;color:#3f4348;">${esc(t)}</td></tr>`;
+  const vacio = `<tr><td colspan="3" style="${F}"> </td></tr>`;
+  let h = `<table style="border-collapse:collapse;${F}">`;
+  let t = [];
+
+  h += sec("ESTADOS") + `<tr>${th("Paradas")}${th("Estado")}${th("Viajes")}</tr>`;
+  t.push("ESTADOS","Paradas\tEstado\tViajes");
+  r.lista.forEach(e=>{
+    const a = r.acc[e] || {p:0,v:0};
+    const st = `background:${COLORES[e]||"#ffffff"};color:${TEXTO[e]||"#000000"};font-weight:bold;`;
+    h += `<tr>${td(a.p,"font-weight:bold;")}${td(e,st)}${td(a.v)}</tr>`;
+    t.push(`${a.p}\t${e}\t${a.v}`);
+  });
+  h += `<tr>${td(r.totP,"font-weight:bold;background:#eceef1;")}${td("TOTAL","font-weight:bold;background:#eceef1;")}${td(r.nViajes,"font-weight:bold;background:#eceef1;")}</tr>`;
+  t.push(`${r.totP}\tTOTAL\t${r.nViajes}`);
+
+  h += vacio; t.push("");
+  h += sec("EN CALLE · CARGANDO · EN CEDIS") + `<tr>${th("Grupo")}${th("Paradas")}${th("%")}</tr>`;
+  t.push("EN CALLE · CARGANDO · EN CEDIS","Grupo\tParadas\t%");
+  const colG = {"EN CALLE":"#cde01f","CARGANDO":"#6f86e6","EN CEDIS":"#4e5258"};
+  const txtG = {"EN CALLE":"#3f4348","CARGANDO":"#ffffff","EN CEDIS":"#ffffff"};
+  r.grupos.forEach(([n,p,pc])=>{
+    const pct = pc.toFixed(1)+"%";
+    h += `<tr>${td(n,`background:${colG[n]};color:${txtG[n]};font-weight:bold;`)}${td(p,"font-weight:bold;")}${td(pct)}</tr>`;
+    t.push(`${n}\t${p}\t${pct}`);
+  });
+
+  const ini = hora12(document.getElementById("hIni").value);
+  const fin = hora12(document.getElementById("hFin").value);
+  h += vacio; t.push("");
+  h += sec("HORARIO") + `<tr>${th("Inicio de Carga")}${th("Fin de Carga")}${th("")}</tr>` + `<tr>${td(ini,"font-weight:bold;")}${td(fin,"font-weight:bold;")}${td("")}</tr>`;
+  t.push("HORARIO","Inicio de Carga\tFin de Carga",`${ini}\t${fin}`);
+
+  h += "</table>";
+  return {html:h, text:t.join("\n")};
+}
+async function copiarSheets(){
+  const c = construirCopia(); if(!c) return;
+  const btn = document.getElementById("btnCopy"), lbl = document.getElementById("btnCopyT");
+  let ok = false;
+  try{
+    if(navigator.clipboard && window.ClipboardItem){
+      await navigator.clipboard.write([new ClipboardItem({
+        "text/html": new Blob([c.html],{type:"text/html"}),
+        "text/plain": new Blob([c.text],{type:"text/plain"})
+      })]);
+      ok = true;
+    }
+  }catch(e){}
+  if(!ok){            // respaldo (p. ej. si el navegador bloquea el portapapeles)
+    const box = document.createElement("div");
+    box.style.cssText = "position:fixed;left:-9999px;top:0;";
+    box.innerHTML = c.html;
+    document.body.appendChild(box);
+    const rg = document.createRange(); rg.selectNodeContents(box);
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(rg);
+    try{ ok = document.execCommand("copy"); }catch(e){}
+    sel.removeAllRanges(); box.remove();
+  }
+  lbl.textContent = ok ? "¡Copiado! Pega en Sheets" : "No se pudo copiar";
+  btn.classList.toggle("ok", ok);
+  setTimeout(()=>{ lbl.textContent="Copiar para Sheets"; btn.classList.remove("ok"); }, 2200);
+}
+document.getElementById("btnCopy").onclick = copiarSheets;
 
 const fileInput = document.getElementById("file");
 fileInput.onchange = e => { if (e.target.files[0]) cargar(e.target.files[0]); e.target.value = ""; };
