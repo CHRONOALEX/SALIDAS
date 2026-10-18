@@ -94,6 +94,19 @@
   .data td.num{font-variant-numeric:tabular-nums;font-weight:600}
   .data td.id{font-weight:700;color:var(--gray);font-variant-numeric:tabular-nums}
   .data td.mu{font-weight:700}
+
+  /* Primera columna fija (Categoría) */
+  .data th:first-child,
+  .data td:first-child{
+    position:sticky; left:0; z-index:3;
+    box-shadow:2px 0 0 var(--line);
+  }
+  .data thead th:first-child{ z-index:4; background:var(--gray); }
+  .data tbody tr:nth-child(even) td:first-child{ background:#fafbfc; }
+  .data tbody tr:nth-child(odd)  td:first-child{ background:#fff; }
+  .data tbody tr:hover td:first-child{ background:#f3f7d6; }
+  .data td.cat{font-weight:700;color:var(--gray)}
+
   .pill{display:inline-block;padding:3px 11px;border-radius:99px;font-size:10.5px;font-weight:700;letter-spacing:.04em}
   .count{padding:11px 16px;color:var(--muted);font-size:12px;border-top:1px solid var(--line);background:#fafbfc;border-radius:0 0 12px 12px}
 </style>
@@ -125,10 +138,15 @@
 
   <div id="app">
     <div class="toolbar">
-      <button class="btn copy alt" id="btnCopyH" type="button" title="Copia la fila de títulos + la fila de hoy (úsalo la primera vez)">
+      <button class="btn copy alt" id="btnSend" type="button"
+        title="Envía las filas al Google Sheet: reemplaza si ya existe Fecha+Categoría, si no agrega al final">
+        <svg viewBox="0 0 24 24"><path d="M4 12l16-8-6 16-2-6-8-2z"/></svg>
+        <span>Enviar a Google Sheets</span>
+      </button>
+      <button class="btn copy alt" id="btnCopyH" type="button" title="Copia títulos + filas de hoy (primera vez)">
         <span>Copiar con encabezados</span>
       </button>
-      <button class="btn copy" id="btnCopy" type="button" title="Copia solo la fila de hoy, lista para pegar al final de tu hoja">
+      <button class="btn copy" id="btnCopy" type="button" title="Copia solo las filas de hoy, listas para pegar al final de tu hoja">
         <svg viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>
         <span>Copiar fila para Sheets</span>
       </button>
@@ -165,13 +183,18 @@
 </div>
 
 <script>
+/* =========================================================
+   URL de tu Web App de Apps Script
+   ========================================================= */
+const SHEETS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbxY7E04FGPoGzxtCl8YV6ylQdSAnLFZUGCjVKScEInl5IuQGK5yMaZ5sz8ZSrFITm7DeA/exec";
+
 const ORDEN = ["INICIAL","INICIO DE CARGA","FIN DE CARGA","EN RUTA DE ENTREGA","FINALIZADO"];
 const COLORES = {
-  "INICIAL":"#fff3a3",            // amarillo claro
-  "INICIO DE CARGA":"#7cc8f2",    // azul claro
-  "FIN DE CARGA":"#5b5fd6",       // azul morado
-  "EN RUTA DE ENTREGA":"#e0a800", // amarillo mostaza
-  "FINALIZADO":"#9bd41f"          // verde limón
+  "INICIAL":"#fff3a3",
+  "INICIO DE CARGA":"#7cc8f2",
+  "FIN DE CARGA":"#5b5fd6",
+  "EN RUTA DE ENTREGA":"#e0a800",
+  "FINALIZADO":"#9bd41f"
 };
 const TEXTO = {
   "INICIAL":"#5c5320","INICIO DE CARGA":"#0f3a55","FIN DE CARGA":"#fff",
@@ -181,18 +204,19 @@ const EN_CEDIS = ["INICIAL"];
 const CARGANDO = ["INICIO DE CARGA","FIN DE CARGA"];
 const EN_CALLE = ["EN RUTA DE ENTREGA","FINALIZADO"];
 
+/* Categoría como PRIMERA columna */
 const COLS = [
+  {k:"categoria",t:"Categoría",        type:"str", cls:"cat"},
   {k:"id",       t:"ID",               type:"num"},
   {k:"estado",   t:"Estado",           type:"str"},
   {k:"jornada",  t:"Jornada",          type:"str"},
-  {k:"categoria",t:"Categoría",        type:"str"},
   {k:"conductor",t:"Conductor",        type:"str"},
   {k:"vehiculo", t:"Vehículo",         type:"str"},
   {k:"paradas",  t:"Paradas",          type:"num", cls:"num"},
   {k:"muelle",   t:"Muelle de Salida", type:"muelle"}
 ];
 
-let rows = [], sortKey = null, sortDir = 1, lastResumen = null;
+let rows = [], sortKey = null, sortDir = 1;
 
 const norm = s => String(s ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toUpperCase();
 const esc  = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -227,12 +251,12 @@ function parse(json){
     const muelleBase = String(r[c.muelle] ?? "").trim();
     let veh = String(r[c.vehiculo] ?? "").trim();
     const parts = veh.split(/\s+-\s+/);
-    if (parts.length === 2 && parts[0] === parts[1]) veh = parts[0];   // "ABC123 - ABC123" -> "ABC123"
+    if (parts.length === 2 && parts[0] === parts[1]) veh = parts[0];
     return {
       id,
       estado: norm(r[c.estado]),
+      categoria: String(r[c.categoria] ?? "").trim() || "(sin categoría)",
       jornada: String(r[c.jornada] ?? "").trim(),
-      categoria: String(r[c.categoria] ?? "").trim(),
       conductor: String(r[c.conductor] ?? "").trim(),
       vehiculo: veh,
       paradas: Number(r[c.paradas]) || 0,
@@ -278,9 +302,6 @@ function renderResumen(){
     <text x="50" y="44" text-anchor="middle" class="center-l">% EN CALLE</text>
     <text x="50" y="62" text-anchor="middle" class="center-v">${pCalle.toFixed(1)}%</text>`;
 
-  lastResumen = {lista, acc, totP, nViajes: rows.length,
-    grupos:[["EN CALLE",calle,pCalle],["CARGANDO",carg,pCarg],["EN CEDIS",cedis,pCedis]]};
-
   document.getElementById("legend").innerHTML = `
     <div class="row"><span class="dot" style="background:var(--calle)"></span>EN CALLE <b>${calle}</b><span class="m">${pCalle.toFixed(1)}%</span></div>
     <div class="row"><span class="dot" style="background:var(--cargando)"></span>CARGANDO <b>${carg}</b><span class="m">${pCarg.toFixed(1)}%</span></div>
@@ -316,7 +337,7 @@ function renderTabla(){
     let v = r[c.k];
     if (c.k==="estado") v = `<span class="pill" style="background:${COLORES[r.estado]||'#888'};color:${TEXTO[r.estado]||'#fff'}">${esc(v)}</span>`;
     else v = esc(v);
-    const extra = c.k==="id" ? "id" : c.k==="muelle" ? "mu" : "";
+    const extra = c.k==="id" ? "id" : c.k==="muelle" ? "mu" : c.k==="categoria" ? "cat" : "";
     return `<td class="${(c.cls||'')+' '+extra}">${v}</td>`;
   }).join("")}</tr>`).join("");
   const t = document.getElementById("data");
@@ -347,6 +368,7 @@ async function cargar(file){
     err.textContent = "No se pudo procesar el archivo: " + e.message;
   }
 }
+
 /* ---------- Reloj (Monterrey, N.L.) ---------- */
 const TZ = "America/Monterrey";
 const fmtHora  = new Intl.DateTimeFormat("es-MX",{timeZone:TZ,hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:true});
@@ -358,21 +380,19 @@ function tick(){
   const ampm = g("dayPeriod").replace(/\./g,"").replace(/\s/g,"").toUpperCase();
   document.getElementById("clockT").innerHTML = `${g("hour")}:${g("minute")}:${g("second")}<span>${ampm}</span>`;
   document.getElementById("clockD").textContent = fmtFecha.format(now);
-  revisarDia();                                        // borra los horarios al cambiar de día
-  setTimeout(tick, 1000 - (now.getMilliseconds()));   // sincroniza con el cambio de segundo
+  revisarDia();
+  setTimeout(tick, 1000 - (now.getMilliseconds()));
 }
 
-/* ---------- Horarios manuales: se guardan en el navegador y se borran al cambiar de día ---------- */
+/* ---------- Horarios manuales ---------- */
 const KEY = "viajes_horarios_carga";
 const fmtDia = new Intl.DateTimeFormat("en-CA",{timeZone:TZ,year:"numeric",month:"2-digit",day:"2-digit"});
-const hoyMty = () => fmtDia.format(new Date());          // "2026-10-17" (día en Monterrey)
+const hoyMty = () => fmtDia.format(new Date());
 const inIni = document.getElementById("hIni"), inFin = document.getElementById("hFin");
 let diaActual = hoyMty();
 
 function guardarHorarios(){
-  try{
-    localStorage.setItem(KEY, JSON.stringify({dia:diaActual, ini:inIni.value, fin:inFin.value}));
-  }catch(e){}
+  try{ localStorage.setItem(KEY, JSON.stringify({dia:diaActual, ini:inIni.value, fin:inFin.value})); }catch(e){}
 }
 function borrarHorarios(){
   inIni.value = ""; inFin.value = "";
@@ -382,19 +402,19 @@ function cargarHorarios(){
   try{
     const g = JSON.parse(localStorage.getItem(KEY) || "null");
     if (g && g.dia === hoyMty()){ inIni.value = g.ini || ""; inFin.value = g.fin || ""; }
-    else if (g){ localStorage.removeItem(KEY); }          // guardado de otro día
+    else if (g){ localStorage.removeItem(KEY); }
   }catch(e){}
 }
 function revisarDia(){
   const hoy = hoyMty();
-  if (hoy !== diaActual){ diaActual = hoy; borrarHorarios(); }   // pasó la medianoche con la página abierta
+  if (hoy !== diaActual){ diaActual = hoy; borrarHorarios(); }
 }
 ["input","change"].forEach(ev=>{ inIni.addEventListener(ev,guardarHorarios); inFin.addEventListener(ev,guardarHorarios); });
 cargarHorarios();
 tick();
 
-/* ---------- Copiar para Sheets ---------- */
-function hora12(v){            // "14:05" -> "2:05 PM"
+/* ---------- Helpers para exportar ---------- */
+function hora12(v){
   if(!v) return "";
   let [h,m] = v.split(":").map(Number);
   const ap = h>=12 ? "PM" : "AM";
@@ -402,20 +422,46 @@ function hora12(v){            // "14:05" -> "2:05 PM"
   return `${h}:${String(m).padStart(2,"0")} ${ap}`;
 }
 function encabezados(){
-  return ["Fecha", ...ORDEN, "Total Paradas", "Total Viajes",
+  return ["Fecha","Categoría", ...ORDEN, "Total Paradas", "Total Viajes",
           "EN CALLE", "CARGANDO", "EN CEDIS", "% EN CALLE", "% CARGANDO", "% EN CEDIS",
           "Inicio de Carga", "Fin de Carga"];
 }
-function fila(){
-  const r = lastResumen; if(!r) return null;
-  const g = Object.fromEntries(r.grupos.map(([n,p,pc])=>[n,[p,pc]]));
-  const pc = n => g[n][1].toFixed(1)+"%";
-  return [hoyMty(), ...ORDEN.map(e=>r.acc[e]?.p || 0), r.totP, r.nViajes,
-          g["EN CALLE"][0], g["CARGANDO"][0], g["EN CEDIS"][0], pc("EN CALLE"), pc("CARGANDO"), pc("EN CEDIS"),
-          hora12(inIni.value), hora12(inFin.value)];
+
+/* Devuelve UNA fila por cada categoría presente en los datos cargados */
+function filasPorCategoria(){
+  if(!rows.length) return [];
+  const cats = [...new Set(rows.map(r=> r.categoria || "(sin categoría)"))].sort();
+  return cats.map(cat=>{
+    const sub = rows.filter(r=> (r.categoria || "(sin categoría)")===cat);
+    const acc = {};
+    sub.forEach(r=>{ const a = acc[r.estado] ??= {p:0,v:0}; a.p += r.paradas; a.v += 1; });
+    const sum = arr => arr.reduce((s,e)=>s+(acc[e]?.p||0),0);
+    const cedis = sum(EN_CEDIS), carg = sum(CARGANDO), calle = sum(EN_CALLE);
+    const base  = cedis + carg + calle || 1;
+    const totP  = sub.reduce((s,r)=>s+r.paradas,0);
+    return {
+      fecha: hoyMty(),
+      categoria: cat,
+      porEstado: ORDEN.map(e=>acc[e]?.p||0),
+      totalParadas: totP,
+      totalViajes: sub.length,
+      enCalle: calle, cargando: carg, enCedis: cedis,
+      pCalle: (calle/base*100).toFixed(1)+"%",
+      pCarg:  (carg/base*100).toFixed(1)+"%",
+      pCedis: (cedis/base*100).toFixed(1)+"%",
+      ini: hora12(inIni.value),
+      fin: hora12(inFin.value)
+    };
+  });
 }
+function filaDeObj(o){
+  return [o.fecha, o.categoria, ...o.porEstado, o.totalParadas, o.totalViajes,
+          o.enCalle, o.cargando, o.enCedis, o.pCalle, o.pCarg, o.pCedis, o.ini, o.fin];
+}
+
+/* ---------- Copiar (portapapeles) ---------- */
 function construirCopia(conEncabezados){
-  const datos = fila(); if(!datos) return null;
+  const objs = filasPorCategoria(); if(!objs.length) return null;
   const F = "font-family:Lexend,Arial,sans-serif;text-align:center;vertical-align:middle;";
   const B = "border:1px solid #9aa0a6;padding:6px 10px;";
   let h = `<table style="border-collapse:collapse;${F}">`, t = [];
@@ -424,8 +470,12 @@ function construirCopia(conEncabezados){
     h += "<tr>" + enc.map(x=>`<td style="${F}${B}font-weight:bold;background:#4e5258;color:#ffffff;">${esc(x)}</td>`).join("") + "</tr>";
     t.push(enc.join("\t"));
   }
-  h += "<tr>" + datos.map(x=>`<td style="${F}${B}">${esc(x)}</td>`).join("") + "</tr></table>";
-  t.push(datos.join("\t"));
+  objs.forEach(o=>{
+    const datos = filaDeObj(o);
+    h += "<tr>" + datos.map(x=>`<td style="${F}${B}">${esc(x)}</td>`).join("") + "</tr>";
+    t.push(datos.join("\t"));
+  });
+  h += "</table>";
   return {html:h, text:t.join("\n")};
 }
 async function copiarSheets(conEncabezados, btn){
@@ -441,7 +491,7 @@ async function copiarSheets(conEncabezados, btn){
       ok = true;
     }
   }catch(e){}
-  if(!ok){            // respaldo (p. ej. si el navegador bloquea el portapapeles)
+  if(!ok){
     const box = document.createElement("div");
     box.style.cssText = "position:fixed;left:-9999px;top:0;";
     box.innerHTML = c.html;
@@ -455,9 +505,34 @@ async function copiarSheets(conEncabezados, btn){
   btn.classList.toggle("ok", ok);
   setTimeout(()=>{ lbl.textContent = orig; btn.classList.remove("ok"); }, 2200);
 }
-document.getElementById("btnCopy").onclick = e => copiarSheets(false, e.currentTarget);
-document.getElementById("btnCopyH").onclick = e => copiarSheets(true, e.currentTarget);
+document.getElementById("btnCopy").onclick  = e => copiarSheets(false, e.currentTarget);
+document.getElementById("btnCopyH").onclick = e => copiarSheets(true,  e.currentTarget);
 
+/* ---------- Enviar a Google Sheets (Apps Script Web App) ---------- */
+document.getElementById("btnSend").onclick = async (e)=>{
+  const btn = e.currentTarget, lbl = btn.querySelector("span"), orig = lbl.textContent;
+  const objs = filasPorCategoria();
+  if(!objs.length){ return; }
+  lbl.textContent = "Enviando…";
+  let ok = false, msg = "";
+  try{
+    const resp = await fetch(SHEETS_WEBAPP_URL, {
+      method: "POST",
+      headers: {"Content-Type":"text/plain;charset=utf-8"},
+      body: JSON.stringify({ filas: objs.map(filaDeObj) })
+    });
+    const json = await resp.json();
+    ok = !!json.ok;
+    msg = json.mensaje || "";
+  }catch(err){
+    msg = err.message || "error de red";
+  }
+  lbl.textContent = ok ? `¡Listo! ${msg}` : `Error: ${String(msg).slice(0,45)}`;
+  btn.classList.toggle("ok", ok);
+  setTimeout(()=>{ lbl.textContent = orig; btn.classList.remove("ok"); }, 3500);
+};
+
+/* ---------- Input de archivo + drag&drop ---------- */
 const fileInput = document.getElementById("file");
 fileInput.onchange = e => { if (e.target.files[0]) cargar(e.target.files[0]); e.target.value = ""; };
 let depth = 0;
