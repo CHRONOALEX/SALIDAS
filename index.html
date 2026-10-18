@@ -508,27 +508,46 @@ async function copiarSheets(conEncabezados, btn){
 document.getElementById("btnCopy").onclick  = e => copiarSheets(false, e.currentTarget);
 document.getElementById("btnCopyH").onclick = e => copiarSheets(true,  e.currentTarget);
 
-/* ---------- Enviar a Google Sheets (Apps Script Web App) ---------- */
-document.getElementById("btnSend").onclick = async (e)=>{
+/* ---------- Enviar a Google Sheets (form oculto, sin CORS) ---------- */
+document.getElementById("btnSend").onclick = (e)=>{
   const btn = e.currentTarget, lbl = btn.querySelector("span"), orig = lbl.textContent;
   const objs = filasPorCategoria();
   if(!objs.length){ return; }
-  lbl.textContent = "Enviando…";
-  let ok = false, msg = "";
+
   try{
-    const resp = await fetch(SHEETS_WEBAPP_URL, {
-      method: "POST",
-      headers: {"Content-Type":"text/plain;charset=utf-8"},
-      body: JSON.stringify({ filas: objs.map(filaDeObj) })
-    });
-    const json = await resp.json();
-    ok = !!json.ok;
-    msg = json.mensaje || "";
+    // iframe oculto que recibe la respuesta (nunca se ve)
+    let iframe = document.getElementById("hidden_iframe");
+    if(!iframe){
+      iframe = document.createElement("iframe");
+      iframe.name = "hidden_iframe";
+      iframe.id = "hidden_iframe";
+      iframe.style.cssText = "display:none;width:0;height:0;border:0;";
+      document.body.appendChild(iframe);
+    }
+
+    // formulario oculto apuntando al Web App
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = SHEETS_WEBAPP_URL;
+    form.target = "hidden_iframe";
+    form.style.display = "none";
+
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = "payload";
+    input.value = JSON.stringify({ filas: objs.map(filaDeObj) });
+    form.appendChild(input);
+
+    document.body.appendChild(form);
+    form.submit();
+    form.remove();
+
+    lbl.textContent = "¡Enviado! Verifica el Sheet";
+    btn.classList.add("ok");
   }catch(err){
-    msg = err.message || "error de red";
+    lbl.textContent = "Error: " + String(err.message).slice(0,45);
   }
-  lbl.textContent = ok ? `¡Listo! ${msg}` : `Error: ${String(msg).slice(0,45)}`;
-  btn.classList.toggle("ok", ok);
+
   setTimeout(()=>{ lbl.textContent = orig; btn.classList.remove("ok"); }, 3500);
 };
 
